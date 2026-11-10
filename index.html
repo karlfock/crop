@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Räta</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6862;
+    --line: #dedbd4; --accent: #2f6f4f; --accent-ink: #ffffff; --warn: #a3471c;
+    --handle: #d0342c; --quad: #1fa35c;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #201f1c; --ink: #ecebe7; --muted: #a29f97;
+      --line: #3a3833; --accent: #5fb88a; --accent-ink: #10130f; --warn: #e48a5b;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 .2rem; letter-spacing: -.01em; }
+  .lede { color: var(--muted); margin: 0 0 1.2rem; max-width: 60ch; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field > span { font-size: .8rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  select, input[type=number] {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 8px;
+  }
+  input[type=number] { width: 5.5em; }
+  .radios { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .radios label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  button, .button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 7px 12px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  button.primary, .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .spacer { flex: 1; }
+
+  .drop {
+    display: block; cursor: pointer; margin: 16px 0; border: 2px dashed var(--line); border-radius: 12px; padding: 22px 16px;
+    text-align: center; color: var(--muted); transition: border-color .15s, background .15s;
+  }
+  .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .drop input { display: none; }
+  .status { font-size: .9rem; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+
+  .cards { display: grid; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 10px; }
+  .card-head strong { overflow-wrap: anywhere; }
+  .card-head .msg { color: var(--muted); font-size: .9rem; }
+  .card-head .msg.warn { color: var(--warn); font-weight: 600; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 640px) { .panes { grid-template-columns: 1fr; } }
+  .pane > span { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 4px; }
+  .pane canvas, .pane img { display: block; width: 100%; height: auto; border-radius: 6px; background: var(--bg); }
+  .pane img { max-height: 70vh; object-fit: contain; border: 1px solid var(--line); }
+  canvas.editing { touch-action: none; cursor: crosshair; outline: 2px solid var(--accent); outline-offset: 2px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .placeholder { aspect-ratio: 1 / 1.414; display: grid; place-items: center; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 6px; font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Räta</h1>
+  <p class="lede">Klipper ut ett papper (teckning, vykort) ur ett foto och rätar ut det till en rektangel.
+    Allt sker i din webbläsare – bilderna laddas aldrig upp någonstans.</p>
+
+  <div class="controls">
+    <label class="field">
+      <span>Format</span>
+      <select id="ratio">
+        <option value="a">A-format (1 : 1,414)</option>
+        <option value="auto">Uppmätt</option>
+        <option value="custom">Eget förhållande…</option>
+      </select>
+    </label>
+    <label class="field" id="customField" hidden>
+      <span>Förhållande</span>
+      <input id="customRatio" type="number" min="1" max="5" step="0.01" value="1.5">
+    </label>
+    <div class="field">
+      <span>A4-PDF</span>
+      <div class="radios">
+        <label><input type="radio" name="layout" value="single" checked> Bild till vänster, högra halvan tom</label>
+        <label><input type="radio" name="layout" value="double"> Samma bild på båda halvorna</label>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="primary" id="allPdf" disabled>Ladda ner alla som PDF</button>
+  </div>
+
+  <label class="drop" id="drop">
+    <input type="file" id="files" accept="image/*,.heic,.heif" multiple>
+    <strong>Välj foton</strong> eller dra hit dem (jpg, png, heic)
+    <div class="status" id="status">Laddar OpenCV…</div>
+  </label>
+
+  <div class="cards" id="cards"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js"></script>
+<script>
+"use strict";
+const DPI = 300;
+const HALF_A4_MM = [148.5, 210];
+const DETECT_SIZE = 1000;   // som i rata.py: hitta hörnen i en 1000 px-version
+const WORK_SIZE = 4000;     // största sida på originalet vid uträtning (sparar minne)
+const mmToPx = mm => Math.round(mm / 25.4 * DPI);
+
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+const items = [];
+let nextId = 0;
+
+/* ---------- OpenCV laddning ---------- */
+// OBS: resolva aldrig ett promise med själva cv-objektet – Emscripten-modulen har en
+// egen .then() och då fastnar webbläsaren i en oändlig loop.
+const cvReady = new Promise((resolve, reject) => {
+  let hooked = false;
+  const started = Date.now();
+  const poll = () => {
+    const c = window.cv;
+    if (c && c.Mat) return resolve();
+    if (c instanceof Promise && !hooked) {   // vissa byggen exporterar ett riktigt Promise
+      hooked = true;
+      c.then(m => { window.cv = m; });
+    }
+    if (Date.now() - started > 120000) return reject(new Error("OpenCV laddades inte"));
+    setTimeout(poll, 100);
+  };
+  poll();
+});
+cvReady.then(() => { statusEl.textContent = ""; },
+             e => { statusEl.textContent = "Kunde inte ladda OpenCV. Kontrollera nätet och ladda om sidan."; });
+
+/* ---------- Bildinläsning ---------- */
+const isHeic = f => /\.(heic|heif)$/i.test(f.name) || /hei[cf]/i.test(f.type);
+
+function imgFromBlob(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); res(im); };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("kan inte läsa bilden")); };
+    im.src = url;
+  });
+}
+
+async function decode(blob) {
+  try {
+    return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch {
+    return await imgFromBlob(blob);   // drawImage på <img> följer EXIF-rotationen
+  }
+}
+const dims = im => [im.naturalWidth || im.width, im.naturalHeight || im.height];
+const release = im => { if (im.close) im.close(); };
+
+let heicLib = null;
+function loadHeicLib() {
+  heicLib ??= new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+    s.onload = () => res(window.heic2any);
+    s.onerror = () => rej(new Error("kunde inte ladda HEIC-avkodaren"));
+    document.head.appendChild(s);
+  });
+  return heicLib;
+}
+
+/** Returnerar en blob som webbläsaren kan avkoda (HEIC konverteras om det behövs). */
+async function decodableBlob(file) {
+  try { release(await decode(file)); return file; }
+  catch (e) {
+    if (!isHeic(file)) throw e;
+    const heic2any = await loadHeicLib();
+    const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.95 });
+    return Array.isArray(out) ? out[0] : out;
+  }
+}
+
+function drawScaled(im, scale) {
+  const [w, h] = dims(im);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * scale));
+  c.height = Math.max(1, Math.round(h * scale));
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(im, 0, 0, c.width, c.height);
+  return c;
+}
+
+/* ---------- Geometri (port av rata.py) ---------- */
+function order(pts) {
+  const s = pts.map(p => p[0] + p[1]), d = pts.map(p => p[1] - p[0]);
+  const argmin = a => a.indexOf(Math.min(...a)), argmax = a => a.indexOf(Math.max(...a));
+  return [pts[argmin(s)], pts[argmin(d)], pts[argmax(s)], pts[argmax(d)]];
+}
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/** Hitta det ljusa, ofärgade pappret som täcker bildens mitt och anpassa en fyrhörning. */
+function findCorners(canvas) {
+  const mats = [];
+  const keep = m => (mats.push(m), m);
+  try {
+    const src = keep(cv.imread(canvas));
+    const sw = src.cols, sh = src.rows;
+    const rgb = keep(new cv.Mat());
+    cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
+    cv.GaussianBlur(rgb, rgb, new cv.Size(5, 5), 0);
+    const hsv = keep(new cv.Mat());
+    cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+    const ch = keep(new cv.MatVector());
+    cv.split(hsv, ch);
+    const sat = keep(ch.get(1)), val = keep(ch.get(2));
+
+    // Papper = ljust och nästan ofärgat. Tröskeln för ljushet sätts adaptivt (Otsu).
+    const tmp = keep(new cv.Mat());
+    const t = cv.threshold(val, tmp, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+    const bright = keep(new cv.Mat()), pale = keep(new cv.Mat()), paper = keep(new cv.Mat());
+    cv.threshold(val, bright, t, 255, cv.THRESH_BINARY);
+    cv.threshold(sat, pale, 59, 255, cv.THRESH_BINARY_INV);
+    cv.bitwise_and(bright, pale, paper);
+    // Fyll i teckningen så att pappret blir en sammanhängande yta.
+    cv.morphologyEx(paper, paper, cv.MORPH_OPEN, keep(cv.Mat.ones(5, 5, cv.CV_8U)));
+    cv.morphologyEx(paper, paper, cv.MORPH_CLOSE, keep(cv.Mat.ones(15, 15, cv.CV_8U)));
+
+    const contours = keep(new cv.MatVector()), hier = keep(new cv.Mat());
+    cv.findContours(paper, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
+    if (contours.size() === 0) return null;
+
+    const center = new cv.Point(sw / 2, sh / 2);
+    let best = null, bestArea = -1, bestInside = null, bestInsideArea = -1;
+    for (let i = 0; i < contours.size(); i++) {
+      const c = keep(contours.get(i));
+      const area = cv.contourArea(c);
+      if (area > bestArea) { best = c; bestArea = area; }
+      if (area > bestInsideArea && cv.pointPolygonTest(c, center, false) >= 0) { bestInside = c; bestInsideArea = area; }
+    }
+    const c = bestInside || best;
+    if (cv.contourArea(c) < 0.1 * sw * sh) return null;
+
+    const hull = keep(new cv.Mat());
+    cv.convexHull(c, hull, false, true);
+    const peri = cv.arcLength(hull, true);
+    let quad = null;
+    for (let k = 0; k < 19 && !quad; k++) {
+      const eps = 0.01 + k * 0.005;
+      const approx = keep(new cv.Mat());
+      cv.approxPolyDP(hull, approx, eps * peri, true);
+      if (approx.rows === 4) {
+        const d = approx.data32S;
+        quad = [[d[0], d[1]], [d[2], d[3]], [d[4], d[5]], [d[6], d[7]]];
+      }
+    }
+    if (!quad) quad = cv.RotatedRect.points(cv.minAreaRect(hull)).map(p => [p.x, p.y]);
+    const rough = order(quad);
+
+    // Förfina: anpassa en rak linje per sida med RANSAC, så att saker som sticker ut
+    // (en hand, något vitt bredvid pappret) inte drar hörnen fel.
+    const cd = c.data32S, points = [];
+    for (let i = 0; i < cd.length; i += 2) points.push([cd[i], cd[i + 1]]);
+    return refineSides(points, rough, 0.06 * Math.max(sw, sh)) || rough;
+  } finally {
+    mats.forEach(m => m.delete());
+  }
+}
+
+function refineSides(points, quad, band, iters = 400, tol = 2.0) {
+  const rng = mulberry32(0);
+  const lines = [];
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+    const nx = -dy / len, ny = dx / len;
+    const cand = points.filter(p => {
+      const px = p[0] - a[0], py = p[1] - a[1];
+      const t = (px * dx + py * dy) / (len * len);
+      return Math.abs(px * nx + py * ny) < band && t > -0.05 && t < 1.05;
+    });
+    if (cand.length < 20) return null;
+    let best = null;
+    for (let k = 0; k < iters; k++) {
+      const p = cand[Math.floor(rng() * cand.length)], q = cand[Math.floor(rng() * cand.length)];
+      const vx = q[0] - p[0], vy = q[1] - p[1], vl = Math.hypot(vx, vy);
+      if (vl < 0.2 * len) continue;
+      const mx = -vy / vl, my = vx / vl;
+      const inl = cand.filter(c => Math.abs((c[0] - p[0]) * mx + (c[1] - p[1]) * my) < tol);
+      if (!best || inl.length > best.length) best = inl;
+    }
+    if (!best || best.length < 2) return null;
+    const pm = cv.matFromArray(best.length, 1, cv.CV_32FC2, best.flat());
+    const ln = new cv.Mat();
+    cv.fitLine(pm, ln, cv.DIST_HUBER, 0, 0.01, 0.01);
+    const [vx, vy, x0, y0] = ln.data32F;
+    pm.delete(); ln.delete();
+    lines.push({ p: [x0, y0], v: [vx, vy] });
+  }
+  const corners = [];
+  for (let i = 0; i < 4; i++) {   // hörn i = skärning mellan sida i-1 och sida i
+    const { p: p1, v: v1 } = lines[(i + 3) % 4], { p: p2, v: v2 } = lines[i];
+    const det = v2[0] * v1[1] - v1[0] * v2[1];
+    if (Math.abs(det) < 1e-6) return null;
+    const rx = p2[0] - p1[0], ry = p2[1] - p1[1];
+    const s = (v2[0] * ry - rx * v2[1]) / det;
+    corners.push([p1[0] + s * v1[0], p1[1] + s * v1[1]]);
+  }
+  return order(corners);
+}
+
+/** Räta ut fyrhörningen till en rektangel; liggande papper vrids till stående (halv A4). */
+function warp(canvas, corners, ratio) {
+  const [tl, tr, br, bl] = corners;
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const width = Math.max(dist(tr, tl), dist(br, bl));
+  const height = Math.max(dist(bl, tl), dist(br, tr));
+  const landscape = width > height;
+  let w, h;
+  if (ratio === "auto") { w = Math.round(width); h = Math.round(height); }
+  else {
+    const long = mmToPx(HALF_A4_MM[1]), short = Math.round(long / ratio);
+    [w, h] = landscape ? [long, short] : [short, long];
+  }
+  const src = cv.imread(canvas);
+  const from = cv.matFromArray(4, 1, cv.CV_32FC2, corners.flat());
+  const to = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, w - 1, 0, w - 1, h - 1, 0, h - 1]);
+  const m = cv.getPerspectiveTransform(from, to);
+  let out = new cv.Mat();
+  cv.warpPerspective(src, out, m, new cv.Size(w, h), cv.INTER_CUBIC, cv.BORDER_CONSTANT,
+                     new cv.Scalar(255, 255, 255, 255));
+  src.delete(); from.delete(); to.delete(); m.delete();
+  if (landscape) {   // 90° moturs = transponera + spegla vertikalt
+    const r = new cv.Mat();
+    cv.transpose(out, r);
+    cv.flip(r, r, 0);
+    out.delete(); out = r;
+  }
+  const result = document.createElement("canvas");
+  cv.imshow(result, out);
+  out.delete();
+  return result;
+}
+
+/* ---------- Inställningar ---------- */
+function currentRatio() {
+  const v = $("ratio").value;
+  if (v === "a") return Math.SQRT2;
+  if (v === "auto") return "auto";
+  const n = parseFloat($("customRatio").value);
+  return n >= 1 ? n : Math.SQRT2;
+}
+const isDouble = () => document.querySelector("input[name=layout]:checked").value === "double";
+
+/* ---------- Kort i gränssnittet ---------- */
+function createCard(item) {
+  const card = document.createElement("article");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="card-head"><strong></strong><span class="msg">Väntar…</span></div>
+    <div class="panes">
+      <div class="pane"><span>Foto</span><canvas class="photo"></canvas></div>
+      <div class="pane"><span>Resultat</span><div class="placeholder">…</div><img alt="Uträtad bild" hidden></div>
+    </div>
+    <div class="actions">
+      <button data-act="edit" disabled>Justera hörn</button>
+      <button data-act="reset" disabled hidden>Återställ hörn</button>
+      <button data-act="jpg" disabled>Ladda ner JPG</button>
+      <button data-act="pdf" disabled>Ladda ner PDF</button>
+      <button data-act="remove">Ta bort</button>
+    </div>`;
+  card.querySelector("strong").textContent = item.name;
+  item.card = card;
+  item.msg = card.querySelector(".msg");
+  item.canvas = card.querySelector("canvas.photo");
+  item.img = card.querySelector("img");
+  item.placeholder = card.querySelector(".placeholder");
+  card.querySelector(".actions").addEventListener("click", e => {
+    const act = e.target.dataset?.act;
+    if (act === "edit") toggleEdit(item);
+    if (act === "reset") { item.corners = item.detected.map(p => [...p]); drawEditor(item); render(item); }
+    if (act === "jpg") download(item.outBlob, item.stem + "_rak.jpg");
+    if (act === "pdf") makePdf([item]).then(doc => doc.save(item.stem + "_A4.pdf"));
+    if (act === "remove") removeItem(item);
+  });
+  setupDrag(item);
+  $("cards").appendChild(card);
+}
+
+function setMsg(item, text, warn = false) {
+  item.msg.textContent = text;
+  item.msg.classList.toggle("warn", warn);
+}
+function enable(item, on) {
+  item.card.querySelectorAll("button[data-act]:not([data-act=remove])").forEach(b => b.disabled = !on);
+}
+
+function removeItem(item) {
+  items.splice(items.indexOf(item), 1);
+  item.removed = true;
+  item.card.remove();
+  if (item.img.src) URL.revokeObjectURL(item.img.src);
+  updateAllButton();
+}
+
+function updateAllButton() {
+  $("allPdf").disabled = !items.some(i => i.outBlob);
+}
+
+/* ---------- Hörneditor ---------- */
+function drawEditor(item) {
+  const c = item.canvas, ctx = c.getContext("2d");
+  ctx.drawImage(item.small, 0, 0);
+  const unit = c.width / Math.max(1, c.getBoundingClientRect().width || c.width); // canvas-px per css-px
+  ctx.lineWidth = 2.5 * unit;
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--quad") || "#1fa35c";
+  ctx.beginPath();
+  item.corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.closePath();
+  ctx.stroke();
+  if (item.editing) {
+    item.corners.forEach(([x, y], i) => {
+      ctx.beginPath();
+      ctx.arc(x, y, 11 * unit, 0, Math.PI * 2);
+      ctx.fillStyle = i === item.drag ? "rgba(208,52,44,.45)" : "rgba(208,52,44,.18)";
+      ctx.fill();
+      ctx.lineWidth = 2.5 * unit;
+      ctx.strokeStyle = "#d0342c";
+      ctx.stroke();
+    });
+  }
+}
+
+function toggleEdit(item) {
+  item.editing = !item.editing;
+  item.canvas.classList.toggle("editing", item.editing);
+  const btn = item.card.querySelector("[data-act=edit]");
+  btn.textContent = item.editing ? "Klar" : "Justera hörn";
+  btn.classList.toggle("primary", item.editing);
+  item.card.querySelector("[data-act=reset]").hidden = !item.editing || !item.detected;
+  item.card.querySelector(".pane > span").textContent = item.editing ? "Foto – dra hörnen" : "Foto";
+  drawEditor(item);
+}
+
+function setupDrag(item) {
+  const c = item.canvas;
+  const toCanvas = e => {
+    const r = c.getBoundingClientRect();
+    return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height];
+  };
+  c.addEventListener("pointerdown", e => {
+    if (!item.editing) return;
+    const [x, y] = toCanvas(e);
+    const d = item.corners.map(([px, py]) => Math.hypot(px - x, py - y));
+    item.drag = d.indexOf(Math.min(...d));
+    item.corners[item.drag] = [x, y];
+    c.setPointerCapture(e.pointerId);
+    drawEditor(item);
+    e.preventDefault();
+  });
+  c.addEventListener("pointermove", e => {
+    if (item.drag == null) return;
+    const [x, y] = toCanvas(e);
+    item.corners[item.drag] = [Math.min(Math.max(x, 0), c.width), Math.min(Math.max(y, 0), c.height)];
+    drawEditor(item);
+  });
+  const end = () => {
+    if (item.drag == null) return;
+    item.drag = null;
+    item.corners = order(item.corners);
+    drawEditor(item);
+    render(item);
+  };
+  c.addEventListener("pointerup", end);
+  c.addEventListener("pointercancel", end);
+}
+
+/* ---------- Bearbetning ---------- */
+let queue = Promise.resolve();
+const enqueue = fn => (queue = queue.then(fn, fn));
+
+async function analyze(item) {
+  if (item.removed) return;
+  setMsg(item, "Läser bilden…");
+  try {
+    item.blob = await decodableBlob(item.file);
+    const im = await decode(item.blob);
+    const [w, h] = dims(im);
+    item.detectScale = DETECT_SIZE / Math.max(w, h);
+    item.small = drawScaled(im, item.detectScale);
+    release(im);
+  } catch (e) {
+    setMsg(item, "Kunde inte läsa bilden: " + e.message, true);
+    return;
+  }
+  item.canvas.width = item.small.width;
+  item.canvas.height = item.small.height;
+  await cvReady;
+  setMsg(item, "Letar efter pappret…");
+  await new Promise(r => setTimeout(r, 0));
+  const found = findCorners(item.small);
+  const sw = item.small.width, sh = item.small.height;
+  item.detected = found;
+  item.corners = (found || [[.1 * sw, .1 * sh], [.9 * sw, .1 * sh], [.9 * sw, .9 * sh], [.1 * sw, .9 * sh]])
+    .map(p => [...p]);
+  drawEditor(item);
+  enable(item, true);
+  if (!found) {
+    toggleEdit(item);
+    setMsg(item, "Hittade inget papper – dra hörnen rätt.", true);
+  }
+  item.renderToken = ++renderToken;
+  await doRender(item, !found);
+}
+
+let renderToken = 0;
+function render(item, keepMsg = false) {
+  const token = item.renderToken = ++renderToken;
+  return enqueue(() => {
+    if (item.removed || token !== item.renderToken) return;   // en nyare uträtning är på väg
+    return doRender(item, keepMsg);
+  });
+}
+
+/** Körs alltid inifrån kön. */
+async function doRender(item, keepMsg) {
+  try {
+    if (!keepMsg) setMsg(item, "Rätar ut…");
+    const im = await decode(item.blob);
+    const [w, h] = dims(im);
+    const workScale = Math.min(1, WORK_SIZE / Math.max(w, h));
+    const full = drawScaled(im, workScale);
+    release(im);
+    const k = workScale / item.detectScale;
+    const out = warp(full, item.corners.map(([x, y]) => [x * k, y * k]), currentRatio());
+    full.width = full.height = 0;
+    item.outW = out.width; item.outH = out.height;
+    item.outBlob = await new Promise(r => out.toBlob(r, "image/jpeg", 0.95));
+    item.outBytes = new Uint8Array(await item.outBlob.arrayBuffer());
+    out.width = out.height = 0;
+    if (item.img.src) URL.revokeObjectURL(item.img.src);
+    item.img.src = URL.createObjectURL(item.outBlob);
+    item.img.hidden = false;
+    item.placeholder.hidden = true;
+    if (!keepMsg) setMsg(item, `${item.outW} × ${item.outH} px`);
+    updateAllButton();
+  } catch (e) {
+    setMsg(item, "Fel vid uträtning: " + e.message, true);
+  }
+}
+
+function addFiles(files) {
+  for (const file of files) {
+    if (!/^image\//.test(file.type) && !isHeic(file)) continue;
+    const item = { id: nextId++, file, name: file.name, stem: file.name.replace(/\.[^.]+$/, "") };
+    items.push(item);
+    createCard(item);
+    enqueue(() => analyze(item));
+  }
+}
+
+/* ---------- PDF ---------- */
+async function makePdf(list) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  const [hw, hh] = HALF_A4_MM;
+  list.filter(i => i.outBytes).forEach((it, n) => {
+    if (n) doc.addPage("a4", "landscape");
+    const s = Math.min(hw / it.outW, hh / it.outH);
+    const w = it.outW * s, h = it.outH * s, x = (hw - w) / 2, y = (hh - h) / 2;
+    const alias = "bild" + it.id + "_" + it.renderToken;
+    doc.addImage(it.outBytes, "JPEG", x, y, w, h, alias, "NONE");
+    if (isDouble()) doc.addImage(it.outBytes, "JPEG", hw + x, y, w, h, alias, "NONE");
+  });
+  return doc;
+}
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+/* ---------- Händelser ---------- */
+$("files").addEventListener("change", e => { addFiles(e.target.files); e.target.value = ""; });
+const drop = $("drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("over")));
+drop.addEventListener("drop", e => { e.preventDefault(); addFiles(e.dataTransfer.files); });
+
+$("ratio").addEventListener("change", () => {
+  $("customField").hidden = $("ratio").value !== "custom";
+  items.filter(i => i.corners).forEach(i => render(i));
+});
+$("customRatio").addEventListener("change", () => items.filter(i => i.corners).forEach(i => render(i)));
+$("allPdf").addEventListener("click", async () => {
+  const doc = await makePdf(items);
+  doc.save(items.length === 1 ? items[0].stem + "_A4.pdf" : "rata_A4.pdf");
+});
+window.addEventListener("resize", () => items.filter(i => i.small).forEach(drawEditor));
+</script>
+</body>
+</html>

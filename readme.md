@@ -10,3 +10,13 @@ cd <folder-with-images>
 
 
 Första gången skapar scriptet en .venv bredvid sig självt och installerar OpenCV, Pillow, NumPy och pillow-heif, så att HEIC-bilder också fungerar. Det tar någon minut, sedan går det direkt. Utan filnamn tar det alla jpg-, png- och heic-bilder i mappen och hoppar över de _rak.jpg som redan är skapade.
+
+## Webbversion
+
+`index.html` gör samma sak direkt i webbläsaren (OpenCV.js, inget backend, bilderna lämnar aldrig datorn/telefonen).
+Öppna filen lokalt, eller slå på GitHub Pages för repot (Settings → Pages → Deploy from branch → master, / (root)).
+
+- Välj eller dra in foton (jpg, png, heic).
+- *Justera hörn* motsvarar `--edit` – dra hörnen, resultatet uppdateras direkt.
+- Format: A-format, uppmätt (`--ratio auto`) eller eget förhållande.
+- A4-PDF: bilden till vänster (`--pdf`) eller på båda halvorna (`--dubbel`).
