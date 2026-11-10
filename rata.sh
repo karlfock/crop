@@ -6,6 +6,7 @@
 #   ./rata.sh                     # alla bilder i aktuell mapp (jpg, jpeg, png, heic)
 #   ./rata.sh foto.jpg --edit     # vidare argument skickas till rata.py
 #   ./rata.sh --pdf               # alla bilder i aktuell mapp + A4-PDF:er
+#   ./rata.sh --dubbel            # A4-PDF:er med bilden på båda halvorna
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

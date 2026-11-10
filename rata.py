@@ -6,6 +6,7 @@ till en rektangel med räta vinklar. Ingen AI: kantdetektering + perspektivtrans
 Användning:
     python3 rata.py foto.jpg                 # automatiskt, sparar foto_rak.jpg
     python3 rata.py *.jpg --pdf              # flera bilder + A4-PDF (bilden på vänstra halvan)
+    python3 rata.py *.jpg --dubbel           # A4-PDF med bilden på båda halvorna (klipp itu)
     python3 rata.py foto.jpg --edit          # visa hörnen, dra dem rätt, Enter = spara
     python3 rata.py foto.jpg --ratio auto    # behåll papperets uppmätta proportioner
 
@@ -196,7 +197,9 @@ def main():
     ap.add_argument("--ratio", default="a",
                     help="'a' = A-format 1:1.414 (standard), 'auto' = uppmätt, eller ett tal, t.ex. 1.5")
     ap.add_argument("--pdf", action="store_true",
-                    help="spara även A4 liggande PDF med bilden på vänstra halvan")
+                    help="spara även A4 liggande PDF med bilden på vänstra halvan (högra tom att skriva på)")
+    ap.add_argument("--dubbel", action="store_true",
+                    help="som --pdf men med bilden på båda halvorna, så att ett A4 blir två kort")
     ap.add_argument("--debug", action="store_true", help="spara bild med hittade hörn utritade")
     args = ap.parse_args()
 
@@ -224,11 +227,14 @@ def main():
         out.save(out_path, quality=95, dpi=(DPI, DPI))
         print(f"{path.name} -> {out_path.name}")
 
-        if args.pdf:
+        if args.pdf or args.dubbel:
             page = Image.new("RGB", (mm_to_px(A4_LANDSCAPE_MM[0]), mm_to_px(A4_LANDSCAPE_MM[1])), "white")
             half_w, half_h = mm_to_px(HALF_A4_MM[0]), mm_to_px(HALF_A4_MM[1])
             fitted = ImageOps.contain(out, (half_w, half_h))
-            page.paste(fitted, ((half_w - fitted.width) // 2, (half_h - fitted.height) // 2))
+            offset = ((half_w - fitted.width) // 2, (half_h - fitted.height) // 2)
+            page.paste(fitted, offset)
+            if args.dubbel:
+                page.paste(fitted, (page.width - half_w + offset[0], offset[1]))
             pdf_path = path.with_name(path.stem + "_A4.pdf")
             page.save(pdf_path, resolution=DPI)
             print(f"{path.name} -> {pdf_path.name}")
